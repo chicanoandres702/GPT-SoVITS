@@ -1,35 +1,60 @@
 import platform,os,traceback
 import ffmpeg
 import numpy as np
+import subprocess
 import gradio as gr
 from tools.i18n.i18n import I18nAuto
 import pandas as pd
-i18n = I18nAuto(language=os.environ.get('language','Auto'))
 
 def load_audio(file, sr):
     try:
-        # https://github.com/openai/whisper/blob/main/whisper/audio.py#L26
-        # This launches a subprocess to decode audio while down-mixing and resampling as necessary.
-        # Requires the ffmpeg CLI and `ffmpeg-python` package to be installed.
-        file = clean_path(file)  # 防止小白拷路径头尾带了空格和"和回车
-        if os.path.exists(file) == False:
-            raise RuntimeError(
-                "You input a wrong audio path that does not exists, please fix it!"
-            )
-        out, _ = (
-            ffmpeg.input(file, threads=0)
-            .output("-", format="f32le", acodec="pcm_f32le", ac=1, ar=sr)
-            .run(cmd=["ffmpeg", "-nostdin"], capture_stdout=True, capture_stderr=True)
-        )
+        print(file)
+        file = clean_path(file)
+        if not os.path.exists(file):
+
+            print(f"Audio file not found: {file}")
+            # raise RuntimeError(f"Audio file not found: {file}")
+
+        command = [
+            "ffmpeg",
+            "-nostdin",
+            "-threads", "0",
+            "-i", file,
+            "-f", "f32le",
+            "-acodec", "pcm_f32le",
+            "-ac", "1",
+            "-ar", str(sr),
+            "-" # Output to stdout
+        ]
+        print(command)
+        try:
+            process = subprocess.run(command, capture_output=True, check=True, text=False) # text=False for raw bytes
+            audio_bytes = process.stdout
+            audio_array = np.frombuffer(audio_bytes, np.float32).flatten()
+            return audio_array
+        except:
+            return 0
+
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg subprocess error (return code: {e.returncode}):")
+        print(f"Stdout: {e.stdout.decode('utf-8', errors='ignore')}") # Decode stdout if needed
+        print(f"Stderr: {e.stderr.decode('utf-8', errors='ignore')}") # **Crucially print stderr**
+        raise RuntimeError(f"Failed to load audio via subprocess: FFmpeg error. See stderr output above.")
     except Exception as e:
-        traceback.print_exc()
-        raise RuntimeError(i18n("音频加载失败"))
+        traceback.print_exc() # Still print full traceback for other exceptions
+        print(f"Unexpected error: {e}")
+        # raise RuntimeError(f"Failed to load audio via subprocess: {e}")
+    
 
-    return np.frombuffer(out, np.float32).flatten()
+def clean_path(path_str):
+    if platform.system() == 'Windows':
+        path_str = path_str.replace('/', '\\')
+    return path_str.strip(" ").strip('"').strip("\n").strip('"').strip(" ").strip("\u202a")
 
-
-def clean_path(path_str:str):
-    if path_str.endswith(('\\','/')):
+def clean_path(path_str: str):
+    if path_str is None:
+        return ""
+    if path_str.endswith(('\\', '/')):
         return clean_path(path_str[0:-1])
     path_str = path_str.replace('/', os.sep).replace('\\', os.sep)
     return path_str.strip(" ").strip('\'').strip("\n").strip('"').strip(" ").strip("\u202a")
