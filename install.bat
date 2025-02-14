@@ -10,4 +10,4 @@ mkdir tools/uvr5
 cd tools/uvr5
 git clone https://huggingface.co/Delik/uvr5_weights
 git config core.sparseCheckout true
-mv GPT_SoVITS/pretrained_models/GPT-SoVITS/* GPT_SoVITS/pretrained_models/
+move GPT_SoVITS/pretrained_models/GPT-SoVITS/* GPT_SoVITS/pretrained_models/
