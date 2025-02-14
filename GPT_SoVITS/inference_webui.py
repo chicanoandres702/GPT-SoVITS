@@ -18,9 +18,10 @@ logging.getLogger("torchaudio._extension").setLevel(logging.ERROR)
 logging.getLogger("multipart.multipart").setLevel(logging.ERROR)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-import LangSegment, os, re, sys, json
+import os, re, sys, json
 import pdb
 import torch
+from text.LangSegmenter import LangSegmenter
 
 try:
     import gradio.analytics as analytics
@@ -223,6 +224,7 @@ def change_sovits_weights(sovits_path,prompt_language=None,text_language=None):
         version = "v2"
         model_version="v3"
 
+    dict_language = dict_language_v1 if version =='v1' else dict_language_v2
     if prompt_language is not None and text_language is not None:
         if prompt_language in list(dict_language.keys()):
             prompt_text_update, prompt_language_update = {'__type__':'update'},  {'__type__':'update', 'value':prompt_language}
@@ -242,7 +244,7 @@ def change_sovits_weights(sovits_path,prompt_language=None,text_language=None):
             visible_inp_refs=True
         yield  {'__type__':'update', 'choices':list(dict_language.keys())}, {'__type__':'update', 'choices':list(dict_language.keys())}, prompt_text_update, prompt_language_update, text_update, text_language_update,{"__type__": "update", "visible": visible_sample_steps},{"__type__": "update", "visible": visible_inp_refs},{"__type__": "update", "value": False,"interactive":True if model_version!="v3"else False}
 
-    dict_s2 = torch.load(sovits_path, map_location="cpu")
+    dict_s2 = torch.load(sovits_path, map_location="cpu", weights_only=False)
     hps = dict_s2["config"]
     hps = DictToAttrRecursive(hps)
     hps.model.semantic_frame_rate = "25hz"
@@ -277,7 +279,6 @@ def change_sovits_weights(sovits_path,prompt_language=None,text_language=None):
         vq_model = vq_model.to(device)
     vq_model.eval()
     print("loading sovits_%s"%model_version,vq_model.load_state_dict(dict_s2["weight"], strict=False))
-    dict_language = dict_language_v1 if version =='v1' else dict_language_v2
     with open("./weight.json")as f:
         data=f.read()
         data=json.loads(data)
@@ -380,8 +381,7 @@ def get_phones_and_bert(text,language,version,final=False):
     if language in {"en", "all_zh", "all_ja", "all_ko", "all_yue"}:
         language = language.replace("all_","")
         if language == "en":
-            LangSegment.setfilters(["en"])
-            formattext = " ".join(tmp["text"] for tmp in LangSegment.getTexts(text))
+            formattext = text
         else:
             # 因无法区别中日韩文汉字,以用户输入为准
             formattext = text
@@ -408,19 +408,18 @@ def get_phones_and_bert(text,language,version,final=False):
     elif language in {"zh", "ja", "ko", "yue", "auto", "auto_yue"}:
         textlist=[]
         langlist=[]
-        LangSegment.setfilters(["zh","ja","en","ko"])
         if language == "auto":
-            for tmp in LangSegment.getTexts(text):
+            for tmp in LangSegmenter.getTexts(text):
                 langlist.append(tmp["lang"])
                 textlist.append(tmp["text"])
         elif language == "auto_yue":
-            for tmp in LangSegment.getTexts(text):
+            for tmp in LangSegmenter.getTexts(text):
                 if tmp["lang"] == "zh":
                     tmp["lang"] = "yue"
                 langlist.append(tmp["lang"])
                 textlist.append(tmp["text"])
         else:
-            for tmp in LangSegment.getTexts(text):
+            for tmp in LangSegmenter.getTexts(text):
                 if tmp["lang"] == "en":
                     langlist.append(tmp["lang"])
                 else:
@@ -649,8 +648,8 @@ def get_tts_wav(ref_wav_path, prompt_text, prompt_language, text, text_language,
                 fea = torch.cat([fea_ref, fea_todo_chunk], 2).transpose(2, 1)
                 cfm_res = vq_model.cfm.inference(fea, torch.LongTensor([fea.size(1)]).to(fea.device), mel2, sample_steps, inference_cfg_rate=0)
                 cfm_res = cfm_res[:, :, mel2.shape[2]:]
-                mel2 = cfm_res[:, :, -468:]
-                fea_ref = fea_todo_chunk[:, :, -468:]
+                mel2 = cfm_res[:, :, -T_min:]
+                fea_ref = fea_todo_chunk[:, :, -T_min:]
                 cfm_resss.append(cfm_res)
             cmf_res = torch.cat(cfm_resss, 2)
             cmf_res = denorm_spec(cmf_res)
